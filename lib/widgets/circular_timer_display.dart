@@ -17,63 +17,110 @@ class CircularTimerDisplay extends StatefulWidget {
 }
 
 class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
-  // ドラッグ中の仮プログレス（0.0〜1.0）
   double? _dragProgress;
-  // ドラッグ中かどうか
   bool _isDragging = false;
 
   static const double _size = 280.0;
   static const double _strokeWidth = 12.0;
-  // タッチ判定を広げるための許容範囲（px）
   static const double _hitSlop = 28.0;
 
   double get _radius => _size / 2 - _strokeWidth / 2;
 
-  // 座標 → 角度（0.0〜1.0、12時=0, 時計回り）
+  // ── ドットのプログレス計算（常時表示用）──────────────
+  // カウントアップ上限なし: 60秒1周期で時計回り
+  // カウントアップ上限あり: 0→limit を0.0→1.0でマッピング
+  // カウントダウン        : 経過/total を0.0→1.0でマッピング
+  double _calcDotProgress() {
+    final p = widget.provider;
+    final isCountDown = p.settings.mode == TimerMode.countDown;
+
+    if (_isDragging) {
+      return _dragProgress ?? 0.0;
+    }
+
+    if (isCountDown) {
+      // カウントダウン: 経過時間ベースでドット移動（0=開始 → 1=終了）
+      final total = p.settings.countDownTotalSeconds;
+      if (total == 0) return 0.0;
+      return (p.elapsedSeconds / total).clamp(0.0, 1.0);
+    } else {
+      final limit = p.settings.countUpLimitSeconds;
+      if (limit > 0) {
+        // 上限あり: 経過/上限
+        return (p.elapsedSeconds / limit).clamp(0.0, 1.0);
+      } else {
+        // 上限なし: 60秒で1周（常時グルグル回る）
+        return (p.elapsedSeconds % 60) / 60.0;
+      }
+    }
+  }
+
+  // ── アーク表示用プログレス（リングの塗り具合）────────
+  double _calcArcProgress() {
+    final p = widget.provider;
+    final isCountDown = p.settings.mode == TimerMode.countDown;
+
+    if (_isDragging) {
+      return _dragProgress ?? 0.0;
+    }
+
+    if (isCountDown) {
+      // カウントダウン: 残り時間が減るにつれてアーク伸長
+      return p.progress; // 既存の progress（経過/total）
+    } else {
+      final limit = p.settings.countUpLimitSeconds;
+      if (limit > 0) {
+        return (p.elapsedSeconds / limit).clamp(0.0, 1.0);
+      } else {
+        // 上限なし: アークは常に全周（薄く表示）
+        return 1.0;
+      }
+    }
+  }
+
+  // ── 座標 → プログレス（0.0〜1.0、12時=0）────────────
   double _offsetToProgress(Offset localPos) {
     const center = Offset(_size / 2, _size / 2);
     final dx = localPos.dx - center.dx;
     final dy = localPos.dy - center.dy;
-    // atan2 は右=0, 上=-π/2 → 12時を0にするため +π/2
     double angle = atan2(dy, dx) + pi / 2;
     if (angle < 0) angle += 2 * pi;
     return angle / (2 * pi);
   }
 
-  // タッチ点がリング上かを判定
+  // ── タッチがリング上かを判定 ──────────────────────────
   bool _isOnRing(Offset localPos) {
     const center = Offset(_size / 2, _size / 2);
     final dist = (localPos - center).distance;
     return (dist - _radius).abs() < _hitSlop;
   }
 
-  // プログレス → 絶対秒数に変換して provider にシーク
+  // ── プログレス → 絶対秒数 → provider にシーク ────────
   void _applyProgress(double progress) {
     final p = widget.provider;
     final isCountDown = p.settings.mode == TimerMode.countDown;
 
     if (isCountDown) {
       final total = p.settings.countDownTotalSeconds;
-      // progress 0=開始(残り=total), 1=終了(残り=0)
-      // ただしドラッグで自然に感じるよう: progress が大きい=消費が多い=残り少ない
-      final remaining = (total * (1.0 - progress)).round().clamp(0, total);
+      // ドット位置 = 経過割合 → 残り = total - elapsed
+      final elapsed = (total * progress).round().clamp(0, total);
+      final remaining = total - elapsed;
       p.seekTo(remaining);
     } else {
-      // カウントアップ: 上限がある場合のみ円弧が意味を持つ
       final limit = p.settings.countUpLimitSeconds;
       if (limit > 0) {
         final elapsed = (limit * progress).round().clamp(0, limit);
         p.seekTo(elapsed);
       } else {
-        // 無制限カウントアップ: 最大 99時間 でマッピング
-        const maxSec = 99 * 3600;
-        final elapsed = (maxSec * progress).round().clamp(0, maxSec);
-        p.seekTo(elapsed);
+        // 上限なし: 60秒単位でシーク（現在の周回数を維持）
+        final currentLap = p.elapsedSeconds ~/ 60;
+        final newElapsed = currentLap * 60 + (60 * progress).round();
+        p.seekTo(newElapsed.clamp(0, 99 * 3600));
       }
     }
   }
 
-  // ドラッグ中の表示秒数を計算（リアルタイムプレビュー用）
+  // ── ドラッグ中の時間文字列 ─────────────────────────────
   String _dragTimeStr() {
     final prog = _dragProgress ?? 0.0;
     final p = widget.provider;
@@ -81,7 +128,8 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
 
     if (isCountDown) {
       final total = p.settings.countDownTotalSeconds;
-      final remaining = (total * (1.0 - prog)).round().clamp(0, total);
+      final elapsed = (total * prog).round().clamp(0, total);
+      final remaining = total - elapsed;
       return p.formatTime(remaining);
     } else {
       final limit = p.settings.countUpLimitSeconds;
@@ -89,9 +137,9 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
         final elapsed = (limit * prog).round().clamp(0, limit);
         return p.formatTime(elapsed);
       } else {
-        const maxSec = 99 * 3600;
-        final elapsed = (maxSec * prog).round().clamp(0, maxSec);
-        return p.formatTime(elapsed);
+        final currentLap = p.elapsedSeconds ~/ 60;
+        final newElapsed = currentLap * 60 + (60 * prog).round();
+        return p.formatTime(newElapsed.clamp(0, 99 * 3600));
       }
     }
   }
@@ -101,30 +149,26 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
     final p = widget.provider;
     final isCountDown = p.settings.mode == TimerMode.countDown;
     final state = p.state;
-    final canDrag =
-        state == TimerState.running || state == TimerState.paused;
+    final canDrag = state == TimerState.running || state == TimerState.paused;
 
-    // 表示用プログレス: ドラッグ中は仮値、それ以外は実値
-    final displayProgress = _isDragging
-        ? (_dragProgress ?? p.progress)
-        : p.progress;
-
+    final dotProgress  = _calcDotProgress();
+    final arcProgress  = _calcArcProgress();
     final timeStr = _isDragging ? _dragTimeStr() : p.formatTime(p.displaySeconds);
 
-    // カラー決定
+    // ── カラー決定 ──────────────────────────────────────
     Color ringColor;
     Color glowColor;
     if (_isDragging) {
-      ringColor = const Color(0xFF44AAFF); // ドラッグ中は青
+      ringColor = const Color(0xFF44AAFF);
       glowColor = const Color(0xFF44AAFF);
     } else if (state == TimerState.finished) {
       ringColor = const Color(0xFFFF4444);
       glowColor = const Color(0xFFFF4444);
     } else if (state == TimerState.running) {
-      if (isCountDown && displayProgress > 0.8) {
+      if (isCountDown && arcProgress > 0.8) {
         ringColor = const Color(0xFFFF4444);
         glowColor = const Color(0xFFFF4444);
-      } else if (isCountDown && displayProgress > 0.5) {
+      } else if (isCountDown && arcProgress > 0.5) {
         ringColor = const Color(0xFFFFD700);
         glowColor = const Color(0xFFFFD700);
       } else {
@@ -138,6 +182,11 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
       ringColor = const Color(0xFF44FF88);
       glowColor = const Color(0xFF44FF88);
     }
+
+    // ── ドット表示判定 ────────────────────────────────
+    final showDot = state == TimerState.running ||
+        state == TimerState.paused ||
+        _isDragging;
 
     Widget timerWidget = SizedBox(
       width: _size,
@@ -153,23 +202,26 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: glowColor.withValues(alpha: _isDragging ? 0.3 : 0.15),
+                  color: glowColor.withValues(
+                      alpha: _isDragging ? 0.3 : 0.15),
                   blurRadius: _isDragging ? 55 : 40,
                   spreadRadius: _isDragging ? 14 : 10,
                 ),
               ],
             ),
           ),
-          // リングペインター
+          // リング + ドット
           CustomPaint(
             size: const Size(_size, _size),
             painter: _RingPainter(
-              progress: isCountDown ? displayProgress : displayProgress,
+              arcProgress: arcProgress,
+              dotProgress: dotProgress,
               ringColor: ringColor,
               isCountDown: isCountDown,
               state: state,
               isDragging: _isDragging,
               strokeWidth: _strokeWidth,
+              showDot: showDot,
             ),
           ),
           // 中央コンテンツ
@@ -178,13 +230,13 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
             children: [
               // モードバッジ
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: ringColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
-                  border:
-                      Border.all(color: ringColor.withValues(alpha: 0.5)),
+                  border: Border.all(
+                      color: ringColor.withValues(alpha: 0.5)),
                 ),
                 child: Text(
                   isCountDown ? '▼ COUNT DOWN' : '▲ COUNT UP',
@@ -201,7 +253,9 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
               AnimatedDefaultTextStyle(
                 duration: const Duration(milliseconds: 80),
                 style: TextStyle(
-                  color: _isDragging ? const Color(0xFF44AAFF) : Colors.white,
+                  color: _isDragging
+                      ? const Color(0xFF44AAFF)
+                      : Colors.white,
                   fontSize: timeStr.length > 5 ? 48 : 56,
                   fontWeight: FontWeight.w300,
                   letterSpacing: 4,
@@ -225,7 +279,6 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
                   letterSpacing: 2,
                 ),
               ),
-              // ドラッグ中のヒントテキスト
               if (_isDragging) ...[
                 const SizedBox(height: 4),
                 Text(
@@ -239,7 +292,7 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
               ],
             ],
           ),
-          // ドラッグ可能リングへのヒント（アイドル以外で非ドラッグ時）
+          // ドラッグヒント
           if (canDrag && !_isDragging)
             Positioned(
               bottom: 18,
@@ -256,14 +309,12 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
       ),
     );
 
-    // ドラッグ操作のラッピング
     if (!canDrag) return timerWidget;
 
     return GestureDetector(
       onPanStart: (details) {
-        final localPos = details.localPosition;
-        if (!_isOnRing(localPos)) return;
-        final prog = _offsetToProgress(localPos);
+        if (!_isOnRing(details.localPosition)) return;
+        final prog = _offsetToProgress(details.localPosition);
         setState(() {
           _isDragging = true;
           _dragProgress = prog;
@@ -272,15 +323,13 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
       },
       onPanUpdate: (details) {
         if (!_isDragging) return;
-        final localPos = details.localPosition;
-        final prog = _offsetToProgress(localPos);
         setState(() {
-          _dragProgress = prog;
+          _dragProgress = _offsetToProgress(details.localPosition);
         });
       },
       onPanEnd: (_) {
         if (!_isDragging) return;
-        final prog = _dragProgress ?? widget.provider.progress;
+        final prog = _dragProgress ?? _calcDotProgress();
         setState(() {
           _isDragging = false;
           _dragProgress = null;
@@ -289,7 +338,6 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
         HapticFeedback.mediumImpact();
       },
       onPanCancel: () {
-        if (!_isDragging) return;
         setState(() {
           _isDragging = false;
           _dragProgress = null;
@@ -301,14 +349,10 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
 
   String _stateLabel(TimerState state) {
     switch (state) {
-      case TimerState.idle:
-        return 'READY';
-      case TimerState.running:
-        return 'RUNNING';
-      case TimerState.paused:
-        return 'PAUSED';
-      case TimerState.finished:
-        return 'FINISHED';
+      case TimerState.idle:     return 'READY';
+      case TimerState.running:  return 'RUNNING';
+      case TimerState.paused:   return 'PAUSED';
+      case TimerState.finished: return 'FINISHED';
     }
   }
 }
@@ -317,20 +361,24 @@ class _CircularTimerDisplayState extends State<CircularTimerDisplay> {
 //  リングペインター
 // ════════════════════════════════════════════════
 class _RingPainter extends CustomPainter {
-  final double progress;
+  final double arcProgress;  // アーク（塗り）用
+  final double dotProgress;  // ドット位置用
   final Color ringColor;
   final bool isCountDown;
   final TimerState state;
   final bool isDragging;
   final double strokeWidth;
+  final bool showDot;
 
   _RingPainter({
-    required this.progress,
+    required this.arcProgress,
+    required this.dotProgress,
     required this.ringColor,
     required this.isCountDown,
     required this.state,
     required this.isDragging,
     required this.strokeWidth,
+    required this.showDot,
   });
 
   @override
@@ -339,93 +387,114 @@ class _RingPainter extends CustomPainter {
     final radius = size.width / 2 - strokeWidth / 2;
     const startAngle = -pi / 2; // 12時位置
 
-    // ── ベーストラック ──
+    // ── ベーストラック ──────────────────────────────
     final trackPaint = Paint()
-      ..color = Colors.white.withValues(alpha: isDragging ? 0.14 : 0.08)
+      ..color = Colors.white.withValues(
+          alpha: isDragging ? 0.14 : 0.08)
       ..strokeWidth = isDragging ? strokeWidth + 2 : strokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
     canvas.drawCircle(center, radius, trackPaint);
 
-    // ── プログレスアーク ──
+    // ── プログレスアーク ────────────────────────────
     final progressPaint = Paint()
-      ..color = ringColor
       ..strokeWidth = isDragging ? strokeWidth + 3 : strokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final showArc = isCountDown
-        ? progress > 0
-        : (state == TimerState.running ||
-            state == TimerState.paused ||
-            isDragging);
+    final isCountUpNoLimit = !isCountDown &&
+        state != TimerState.idle &&
+        state != TimerState.finished;
 
-    if (showArc) {
-      final sweepAngle = isCountDown
-          ? 2 * pi * progress
-          : (isDragging ? 2 * pi * progress : 2 * pi);
-      final effectiveSweep = sweepAngle.clamp(0.001, 2 * pi);
-
-      if (!isCountDown && !isDragging) {
-        progressPaint.color = ringColor.withValues(alpha: 0.6);
+    if (isCountDown || isDragging) {
+      // カウントダウン / ドラッグ中: アークを progress 分描画
+      if (arcProgress > 0) {
+        progressPaint.color = ringColor;
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: radius),
+          startAngle,
+          (2 * pi * arcProgress).clamp(0.001, 2 * pi),
+          false,
+          progressPaint,
+        );
       }
-
+    } else if (isCountUpNoLimit) {
+      // カウントアップ上限なし: 全周を薄く表示
+      progressPaint.color = ringColor.withValues(alpha: 0.45);
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         startAngle,
-        effectiveSweep,
+        2 * pi,
         false,
         progressPaint,
       );
+    } else if (!isCountDown) {
+      // カウントアップ上限あり: arcProgress 分描画
+      if (arcProgress > 0) {
+        progressPaint.color = ringColor;
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: radius),
+          startAngle,
+          (2 * pi * arcProgress).clamp(0.001, 2 * pi),
+          false,
+          progressPaint,
+        );
+      }
     }
 
-    // ── ドラッグハンドル（大きめドット）──
-    final showDot = showArc;
+    // ── ドット（ハンドル）───────────────────────────
     if (showDot) {
-      final dotAngle = isCountDown
-          ? startAngle + 2 * pi * progress
-          : (isDragging
-              ? startAngle + 2 * pi * progress
-              : startAngle + 2 * pi);
+      final dotAngle = startAngle + 2 * pi * dotProgress;
       final dotOffset = Offset(
         center.dx + radius * cos(dotAngle),
         center.dy + radius * sin(dotAngle),
       );
 
-      // 外側のリング（ドラッグ中は強調）
       if (isDragging) {
-        final glowPaint = Paint()
-          ..color = ringColor.withValues(alpha: 0.35)
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(dotOffset, 18, glowPaint);
-
-        final borderPaint = Paint()
-          ..color = ringColor.withValues(alpha: 0.8)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2;
-        canvas.drawCircle(dotOffset, 12, borderPaint);
+        // グロー
+        canvas.drawCircle(
+          dotOffset, 18,
+          Paint()
+            ..color = ringColor.withValues(alpha: 0.35)
+            ..style = PaintingStyle.fill,
+        );
+        // 外枠
+        canvas.drawCircle(
+          dotOffset, 12,
+          Paint()
+            ..color = ringColor.withValues(alpha: 0.8)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2,
+        );
       }
 
-      // 中心ドット
-      final dotPaint = Paint()
-        ..color = ringColor
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(dotOffset, isDragging ? 9 : 6, dotPaint);
+      // 本体ドット
+      canvas.drawCircle(
+        dotOffset,
+        isDragging ? 9 : 7,
+        Paint()
+          ..color = ringColor
+          ..style = PaintingStyle.fill,
+      );
 
-      // ドラッグ中の白い中心点
+      // 白い中心点（ドラッグ中）
       if (isDragging) {
-        final innerPaint = Paint()
-          ..color = Colors.white.withValues(alpha: 0.9)
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(dotOffset, 4, innerPaint);
+        canvas.drawCircle(
+          dotOffset, 4,
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.9)
+            ..style = PaintingStyle.fill,
+        );
       }
     }
   }
 
   @override
-  bool shouldRepaint(_RingPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.ringColor != ringColor ||
-      oldDelegate.state != state ||
-      oldDelegate.isDragging != isDragging;
+  bool shouldRepaint(_RingPainter old) =>
+      old.arcProgress != arcProgress ||
+      old.dotProgress != dotProgress ||
+      old.ringColor != ringColor ||
+      old.state != state ||
+      old.isDragging != isDragging ||
+      old.showDot != showDot;
 }
