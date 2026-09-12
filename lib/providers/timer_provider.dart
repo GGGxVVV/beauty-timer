@@ -92,16 +92,13 @@ class TimerProvider extends ChangeNotifier {
       final limit = _settings.countUpLimitSeconds;
       final maxSec = limit > 0 ? limit : 99 * 3600;
       _elapsedSeconds = (_elapsedSeconds + deltaSec).clamp(0, maxSec);
-      // 上限を超えた場合は終了扱い
       if (limit > 0 && _elapsedSeconds >= limit) {
         _elapsedSeconds = limit;
         _onLimitReached();
         return;
       }
     } else {
-      // カウントダウン: remaining と elapsed を連動させる
       final total = _settings.countDownTotalSeconds;
-      // deltaSecを進める方向 = 残り時間を減らす
       _remainingSeconds = (_remainingSeconds - deltaSec).clamp(0, total);
       _elapsedSeconds   = (total - _remainingSeconds).clamp(0, total);
       if (_remainingSeconds == 0) {
@@ -110,16 +107,45 @@ class TimerProvider extends ChangeNotifier {
       }
     }
 
-    // 読み上げ済みSetを現在位置に合わせてリセット
-    // （現在経過秒数より小さい経過アラートは「済み」として保持）
+    _recalcSpokenSets();
+    notifyListeners();
+  }
+
+  /// 絶対値で時間をシーク（円形バーのドラッグ操作用）
+  /// countUp: absoluteSec = 経過秒数
+  /// countDown: absoluteSec = 残り秒数
+  void seekTo(int absoluteSec) {
+    if (_state == TimerState.idle || _state == TimerState.finished) return;
+
+    if (_settings.mode == TimerMode.countUp) {
+      final limit = _settings.countUpLimitSeconds;
+      final maxSec = limit > 0 ? limit : 99 * 3600;
+      _elapsedSeconds = absoluteSec.clamp(0, maxSec);
+      if (limit > 0 && _elapsedSeconds >= limit) {
+        _elapsedSeconds = limit;
+        _onLimitReached();
+        return;
+      }
+    } else {
+      final total = _settings.countDownTotalSeconds;
+      _remainingSeconds = absoluteSec.clamp(0, total);
+      _elapsedSeconds   = total - _remainingSeconds;
+      if (_remainingSeconds == 0) {
+        _onCountDownFinished();
+        return;
+      }
+    }
+
+    _recalcSpokenSets();
+    notifyListeners();
+  }
+
+  void _recalcSpokenSets() {
     _spokenElapsed.removeWhere((s) => s > _elapsedSeconds);
-    // 残り時間アラートも同様に現在残り時間より大きいもの（まだ来ていないもの）を復活
     final currentRem = _settings.mode == TimerMode.countUp
         ? countUpRemainingSeconds
         : _remainingSeconds;
     _spokenRemainingAlerts.removeWhere((s) => s >= currentRem);
-
-    notifyListeners();
   }
 
   /// 動作中でも経過アラートリストを即時変更
