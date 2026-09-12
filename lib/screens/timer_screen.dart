@@ -105,7 +105,6 @@ class TimerScreen extends StatelessWidget {
     final isActive = provider.isRunning || provider.isPaused;
     if (!isActive) return const SizedBox(height: 8);
 
-    final untilNext = provider.isRunning ? provider.secondsUntilNextElapsed : null;
     final isCountDown = provider.settings.mode == TimerMode.countDown;
     final showCountUpRemaining = !isCountDown &&
         provider.settings.countUpLimitSeconds > 0;
@@ -113,7 +112,6 @@ class TimerScreen extends StatelessWidget {
     final showRemainingAlerts = isCountDown
         ? provider.settings.remainingAlerts.isNotEmpty
         : showCountUpRemaining;
-    final remSec = provider.countUpRemainingSeconds;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -144,12 +142,7 @@ class TimerScreen extends StatelessWidget {
                   absolutePrefix: '経過',
                 ),
               ]),
-              if (untilNext != null && provider.settings.elapsedAlerts.isNotEmpty)
-                Text('次まで $untilNext秒',
-                    style: const TextStyle(
-                        color: Color(0xFF44FF88),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold)),
+
             ],
           ),
           // ── 残り時間アラート行（カウントアップ+上限 または カウントダウン）──
@@ -173,14 +166,7 @@ class TimerScreen extends StatelessWidget {
                     absolutePrefix: '残',
                   ),
                 ]),
-                Text(
-                  isCountDown
-                      ? '現在残り ${provider.formatTime(provider.remainingSeconds)}'
-                      : '現在残り ${provider.formatTime(remSec)}',
-                  style: const TextStyle(
-                      color: Color(0xFFFF4444),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold)),
+
               ],
             ),
           ],
