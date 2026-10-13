@@ -1,25 +1,21 @@
 workflows:
-  ios-workflow:
-    name: iOS Workflow
+  ios-release:
+    name: iOS Release Build
     max_build_duration: 120
     environment:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.voicetimer.timer
-      flutter: 3.35.4
+      flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
-      - name: Set up code signing settings on Xcode project
-        script: |
-          xcode-project use-profiles
       - name: Get Flutter packages
         script: |
           flutter pub get
-      - name: Flutter build ipa
+      - name: Flutter build ipa for release
         script: |
-          flutter build ipa --release \
-            --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
