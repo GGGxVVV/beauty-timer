@@ -17,8 +17,6 @@ workflows:
           flutter pub get
       - name: Flutter build ipa for release
         script: |
-          flutter build ipa --release \
-            --no-codesign
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
-      - "*.ipa"
