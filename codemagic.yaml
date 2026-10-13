@@ -15,11 +15,10 @@ workflows:
       - name: Get Flutter packages
         script: |
           flutter pub get
-      - name: Set up code signing
-        script: |
-          xcode-project use-profiles
       - name: Flutter build ipa for release
         script: |
-          flutter build ipa --release
+          flutter build ipa --release \
+            --no-codesign
     artifacts:
       - build/ios/ipa/*.ipa
+      - "*.ipa"
