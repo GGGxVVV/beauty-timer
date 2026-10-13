@@ -13,8 +13,14 @@ workflows:
       - name: Get Flutter packages
         script: |
           flutter pub get
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles \
+            --project ios/Runner.xcodeproj \
+            --profile-type app-store
       - name: Flutter build ipa for release
         script: |
-          flutter build ipa --release
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
