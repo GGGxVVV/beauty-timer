@@ -1,6 +1,6 @@
 workflows:
-  ios-release:
-    name: iOS Release Build
+  default-workflow:
+    name: Default Workflow
     max_build_duration: 120
     environment:
       ios_signing:
