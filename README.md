@@ -29,7 +29,7 @@ Beauty Timer is a simple, offline timer application for cosmetology students, ha
 
 For support or inquiries, please contact us at:
 
-**Email**: gggxvvv2026@gmail.com
+**Email**: support.beautytimer@gmail.com
 
 **Support Page**: https://github.com/GGGxVVV/beauty-timer
 
@@ -88,7 +88,7 @@ We may update this Privacy Policy from time to time. Any changes will be reflect
 
 If you have any questions or concerns about this Privacy Policy, please contact us:
 
-**Email**: gggxvvv2026@gmail.com
+**Email**: support.beautytimer@gmail.com
 
 **GitHub**: https://github.com/GGGxVVV/beauty-timer
 
