@@ -9,7 +9,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.voicetimer.timer
       flutter: stable
-      xcode: latest
+      xcode: 26.5
       cocoapods: default
     scripts:
       - name: Get Flutter packages
